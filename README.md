@@ -1,605 +1,236 @@
-# ⚡ IDPS — Intelligent Document Processing System
+# IDPS — Intelligent Document Processing System
 
-> Production-ready AI-powered platform for OCR, NLP, and document intelligence.
-> Processes invoices, receipts, KYC forms, bank statements, and business documents.
-
-![IDPS Banner](docs/banner.png)
+A document processing tool I built to automate the boring parts of dealing with paperwork. Upload a scanned invoice, a KYC form, or a bank statement and get back structured data, extracted fields, and a confidence score — without touching a single line manually.
 
 ---
 
-## 📋 Table of Contents
-1. [Architecture](#architecture)
-2. [Tech Stack](#tech-stack)
-3. [Features](#features)
-4. [Quick Start (Local)](#quick-start)
-5. [Docker Setup](#docker-setup)
-6. [API Documentation](#api-documentation)
-7. [GitHub Guide](#github-guide)
-8. [Deployment Guide](#deployment-guide)
-9. [Environment Variables](#environment-variables)
-10. [Common Issues & Fixes](#common-issues)
-11. [Production Checklist](#production-checklist)
+## What it does
 
----
+You drop in a document. The system runs OCR on it, figures out what type of document it is, pulls out the relevant fields (amounts, dates, names, account numbers, GST numbers), and sends everything back as clean JSON or CSV. There's a real-time progress bar over WebSocket so you can watch it happen.
 
-## 🏗️ Architecture
+The pipeline looks like this:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     CLIENT BROWSER                       │
-│              Next.js 14 + React + Tailwind               │
-│         Upload → WebSocket Updates → View Results        │
-└──────────────────────┬──────────────────────────────────┘
-                       │ HTTP/WS
-┌──────────────────────▼──────────────────────────────────┐
-│                   FASTAPI BACKEND                        │
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
-│  │   OCR    │  │   NLP    │  │ Export   │  │  WS    │  │
-│  │ Service  │  │ Service  │  │ Service  │  │Manager │  │
-│  └────┬─────┘  └────┬─────┘  └──────────┘  └────────┘  │
-│       │              │                                    │
-│  ┌────▼─────────────▼──────────────────────────────┐    │
-│  │          Processing Orchestrator                  │    │
-│  │  1. Upload  2. OCR  3. Classify  4. NER           │    │
-│  │  5. Fields  6. Keywords  7. Summary  8. Score     │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │           SQLite / PostgreSQL Database            │    │
-│  └──────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
+Upload → Preprocess image → OCR → Classify → NER → Extract fields → Keywords → Summary → Score
 ```
 
-**Processing Pipeline:**
-```
-File Upload
-    │
-    ▼
-Image Preprocessing (deskew → denoise → CLAHE → threshold)
-    │
-    ▼
-OCR Extraction (Tesseract + PyMuPDF for native PDFs)
-    │
-    ▼
-Document Classification (keyword scoring → type + confidence)
-    │
-    ▼
-Named Entity Recognition (spaCy NER → persons/orgs/dates/money)
-    │
-    ▼
-Structured Field Extraction (regex patterns → invoice#/GST/amounts)
-    │
-    ▼
-Keyword Extraction (TF scoring → top N keywords)
-    │
-    ▼
-Extractive Summarization (sentence scoring)
-    │
-    ▼
-Confidence Scoring (OCR × classification × fields)
-    │
-    ▼
-WebSocket notification → Frontend update
-```
+It handles PDFs natively via PyMuPDF and falls back to Tesseract for scanned images. The preprocessing pipeline (deskewing, denoising, CLAHE contrast enhancement, adaptive thresholding) makes a noticeable difference on low-quality scans.
 
 ---
 
-## 🛠️ Tech Stack
+## Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, Framer Motion |
-| Backend | Python 3.11, FastAPI, SQLAlchemy async |
-| OCR | Tesseract OCR, PyMuPDF, OpenCV, Pillow |
-| NLP | spaCy (en_core_web_sm), custom regex extractors |
-| Database | SQLite (dev) / PostgreSQL (prod) |
-| Real-time | WebSockets (native FastAPI) |
-| Container | Docker + Docker Compose |
-| Deployment | Render (backend) + Vercel (frontend) |
-
----
-
-## ✨ Features
-
-- 📄 **Multi-format support**: PDF, PNG, JPG, TIFF, BMP, WEBP
-- 🔍 **Advanced OCR**: Deskewing, denoising, CLAHE, adaptive thresholding
-- 🤖 **Document classification**: Invoice, Receipt, KYC, Bank Statement, Business Doc
-- 🏷️ **NER**: Persons, organizations, locations, dates, money amounts
-- 🗂️ **Structured extraction**: Invoice numbers, GST, PAN, IFSC, amounts, dates, emails
-- 📊 **Confidence scoring**: Per-field and overall confidence metrics
-- ⚡ **Real-time updates**: WebSocket progress bars (0–100%)
-- 📦 **Batch processing**: Up to 10 documents simultaneously
-- ↓ **Export**: JSON and CSV downloads
-- 📜 **Document history**: Searchable with filters
-- 🐳 **Docker-ready**: Single `docker-compose up` deployment
+| Part | What I used |
+|------|-------------|
+| Frontend | Next.js 14, TypeScript, Framer Motion |
+| Backend | Python 3.11, FastAPI, SQLAlchemy (async) |
+| OCR | Tesseract, PyMuPDF, OpenCV, Pillow |
+| NLP | spaCy en_core_web_sm + custom regex |
+| Database | SQLite (dev), PostgreSQL (prod) |
+| Realtime | WebSockets via FastAPI |
+| Deployment | Render + Vercel |
 
 ---
 
-## 🚀 Quick Start (Local)
+## Getting it running locally
 
-### Prerequisites
-- Python 3.11+
-- Node.js 20+
-- Tesseract OCR
+You'll need Python 3.11+, Node.js 20+, and Tesseract installed.
 
-#### Install Tesseract:
+**Install Tesseract:**
 ```bash
-# macOS
-brew install tesseract
-
-# Ubuntu/Debian
-sudo apt-get install tesseract-ocr
-
-# Windows
-# Download from: https://github.com/UB-Mannheim/tesseract/wiki
+brew install tesseract          # macOS
+sudo apt-get install tesseract-ocr  # Ubuntu
 ```
 
-### Backend Setup
+**Backend:**
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Download spaCy model
 python -m spacy download en_core_web_sm
-
-# Copy environment file
 cp ../.env.example .env
-
-# Start backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-Backend runs at: http://localhost:8000
-API Docs: http://localhost:8000/api/docs
+API docs at `http://localhost:8000/api/docs`
 
-### Frontend Setup
+**Frontend:**
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Copy environment file
-cp ../.env.example .env.local
-# Edit .env.local and set NEXT_PUBLIC_API_URL=http://localhost:8000
-
-# Start dev server
+# create .env.local with:
+# NEXT_PUBLIC_API_URL=http://localhost:8000
+# NEXT_PUBLIC_WS_URL=ws://localhost:8000
 npm run dev
 ```
 
-Frontend runs at: http://localhost:3000
+Runs at `http://localhost:3000`
 
 ---
 
-## 🐳 Docker Setup
+## Docker
+
+If you just want everything running with one command:
 
 ```bash
-# Clone repo
-git clone https://github.com/yourusername/idps.git
-cd idps
-
-# Copy env files
+git clone https://github.com/aakashtiru26/intelligent-document-processor.git
+cd intelligent-document-processor
 cp .env.example backend/.env
-
-# Start everything
 docker-compose up --build
-
-# Or in background
-docker-compose up -d --build
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
 ```
 
-Access:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000/api/docs
+Frontend at `localhost:3000`, API docs at `localhost:8000/api/docs`.
 
 ---
 
-## 📡 API Documentation
+## API
 
-### Endpoints
+| Method | Endpoint | What it does |
+|--------|----------|--------------|
+| POST | `/api/documents/upload` | Upload a single document |
+| POST | `/api/documents/batch` | Upload up to 10 at once |
+| GET | `/api/documents/` | List documents with filters |
+| GET | `/api/documents/{id}` | Get a specific document |
+| DELETE | `/api/documents/{id}` | Delete a document |
+| GET | `/api/documents/stats/overview` | Processing statistics |
+| GET | `/api/export/{id}/json` | Export as JSON |
+| GET | `/api/export/{id}/csv` | Export as CSV |
+| WS | `/ws/{client_id}` | Real-time processing updates |
 
-#### Upload Document
-```
-POST /api/documents/upload
-Content-Type: multipart/form-data
-
-Parameters:
-  file: File (required)
-  client_id: string (optional, for WebSocket updates)
-
-Response:
-  {
-    "document_id": "uuid",
-    "filename": "invoice.pdf",
-    "status": "pending",
-    "message": "Document uploaded and queued for processing"
-  }
-```
-
-#### List Documents
-```
-GET /api/documents/?skip=0&limit=20&status=completed&doc_type=invoice
-
-Response:
-  {
-    "total": 42,
-    "documents": [{ ... }]
-  }
-```
-
-#### Get Document
-```
-GET /api/documents/{id}
-```
-
-#### Delete Document
-```
-DELETE /api/documents/{id}
-```
-
-#### Batch Upload
-```
-POST /api/documents/batch
-Content-Type: multipart/form-data
-files: File[] (max 10)
-```
-
-#### Statistics
-```
-GET /api/documents/stats/overview
-```
-
-#### Export JSON
-```
-GET /api/export/{id}/json
-```
-
-#### Export CSV
-```
-GET /api/export/{id}/csv
-```
-
-#### WebSocket
-```
-WS /ws/{client_id}
-
-Server messages:
-  { type: "processing_update", step, progress, message }
-  { type: "processing_complete", document }
-  { type: "processing_error", error }
-```
-
----
-
-## 📂 Folder Structure
-
-```
-idps/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── documents.py    # Document CRUD + upload
-│   │   │   ├── export.py       # JSON/CSV export
-│   │   │   └── health.py       # Health check
-│   │   ├── core/
-│   │   │   ├── config.py       # Settings (pydantic)
-│   │   │   ├── database.py     # SQLAlchemy async
-│   │   │   └── websocket_manager.py
-│   │   ├── models/
-│   │   │   └── document.py     # SQLAlchemy model
-│   │   ├── services/
-│   │   │   ├── ocr_service.py      # OCR + preprocessing
-│   │   │   ├── nlp_service.py      # NLP pipeline
-│   │   │   └── processing_service.py # Orchestrator
-│   │   └── main.py
-│   ├── tests/
-│   │   └── test_api.py
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── page.tsx        # Main dashboard
-│   │   │   ├── layout.tsx
-│   │   │   └── globals.css
-│   │   ├── components/
-│   │   │   ├── dashboard/
-│   │   │   │   ├── Header.tsx
-│   │   │   │   └── StatsBar.tsx
-│   │   │   └── document/
-│   │   │       ├── UploadZone.tsx
-│   │   │       ├── DocumentCard.tsx
-│   │   │       ├── DocumentViewer.tsx
-│   │   │       └── ProcessingOverlay.tsx
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.ts
-│   │   └── lib/
-│   │       └── api.ts
-│   ├── Dockerfile
-│   └── package.json
-├── docker-compose.yml
-├── render.yaml
-├── .env.example
-└── .gitignore
-```
-
----
-
-## 📘 GitHub Guide
-
-### Step 1: Create GitHub Repository
-1. Go to https://github.com/new
-2. Repository name: `idps`
-3. Select **Public** or **Private**
-4. Do NOT initialize with README (we have one)
-5. Click **Create repository**
-
-### Step 2: Initialize and Push
+**Upload example:**
 ```bash
-cd idps
-
-# Initialize git
-git init
-git add .
-git commit -m "feat: initial commit - IDPS v1.0.0
-
-- FastAPI backend with OCR, NLP pipeline
-- Next.js 14 frontend with real-time WebSocket updates
-- Document classification, NER, structured field extraction
-- JSON/CSV export, batch processing
-- Docker Compose setup"
-
-# Add remote origin
-git remote add origin https://github.com/YOUR_USERNAME/idps.git
-git branch -M main
-git push -u origin main
+curl -X POST http://localhost:8000/api/documents/upload \
+  -F "file=@invoice.pdf"
 ```
 
-### Step 3: Add Screenshots
-```bash
-# Take screenshots of the app, save to docs/
-mkdir -p docs
-# Copy your screenshots to docs/screenshot-1.png etc.
-
-git add docs/
-git commit -m "docs: add screenshots"
-git push
-```
-
-### Step 4: Tag a Release
-```bash
-git tag -a v1.0.0 -m "Release v1.0.0 - Initial production release"
-git push origin v1.0.0
+**Response:**
+```json
+{
+  "document_id": "uuid",
+  "filename": "invoice.pdf",
+  "status": "pending",
+  "message": "Document uploaded and queued for processing"
+}
 ```
 
 ---
 
-## 🚀 Deployment Guide (Free)
+## Deploying for free
 
-### Option A: Render (Backend) + Vercel (Frontend) [RECOMMENDED]
+**Backend on Render:**
 
-#### Backend on Render (Free tier)
-1. Go to https://render.com → New → Web Service
-2. Connect your GitHub repo
-3. Configure:
-   - **Root Directory**: `backend`
-   - **Runtime**: Python 3
-   - **Build Command**:
-     ```
-     pip install -r requirements.txt && python -m spacy download en_core_web_sm
-     ```
-   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4. Add Environment Variables:
+1. New Web Service → connect your repo
+2. Root directory: `backend`
+3. Build command: `pip install -r requirements.txt && python -m spacy download en_core_web_sm`
+4. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Add env vars:
    ```
-   DATABASE_URL = sqlite+aiosqlite:///./idps.db
-   UPLOAD_DIR = ./uploads
-   SECRET_KEY = <generate random>
-   CORS_ORIGINS = ["https://your-app.vercel.app"]
+   DATABASE_URL=sqlite+aiosqlite:///./idps.db
+   SECRET_KEY=your-secret-key-here
+   CORS_ORIGINS=["https://your-app.vercel.app"]
    ```
-5. Click **Create Web Service**
-6. Note your URL: `https://idps-xxxx.onrender.com`
 
-> ⚠️ Free Render instances sleep after 15 minutes. Use a cron ping service like https://cron-job.org to keep it awake.
+Note: free Render instances spin down after 15 minutes of inactivity. Set up a cron ping at [cron-job.org](https://cron-job.org) to hit `/api/health` every 14 minutes if you want it always on.
 
-#### Frontend on Vercel (Free tier)
-1. Go to https://vercel.com → New Project
-2. Import your GitHub repo
-3. Configure:
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: Next.js
-4. Add Environment Variables:
+**Frontend on Vercel:**
+
+1. New Project → import repo
+2. Root directory: `frontend`
+3. Add env vars:
    ```
-   NEXT_PUBLIC_API_URL = https://idps-xxxx.onrender.com
-   NEXT_PUBLIC_WS_URL = wss://idps-xxxx.onrender.com
+   NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
+   NEXT_PUBLIC_WS_URL=wss://your-backend.onrender.com
    ```
-5. Click **Deploy**
 
-#### Update Backend CORS
-Go back to Render and update:
-```
-CORS_ORIGINS = ["https://your-idps.vercel.app"]
-```
-
-### Option B: Railway (Backend + Frontend + DB)
-1. Go to https://railway.app → New Project
-2. Add services:
-   - **Backend**: Deploy from GitHub (backend folder)
-   - **PostgreSQL**: Add plugin → PostgreSQL
-3. Set `DATABASE_URL` from PostgreSQL plugin's connection string
-4. Add frontend as separate Railway service
-
-### Option C: Fly.io (Backend)
-```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
-
-cd backend
-fly launch --name idps-backend
-fly deploy
-```
+Then go back to Render and update CORS to include your Vercel URL.
 
 ---
 
-## 🔐 Environment Variables
+## Environment variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | sqlite+... | Database connection string |
-| `SECRET_KEY` | Yes | — | JWT/session secret (min 32 chars) |
-| `UPLOAD_DIR` | No | ./uploads | File upload directory |
-| `MAX_FILE_SIZE_MB` | No | 50 | Max upload size in MB |
-| `TESSERACT_CMD` | No | tesseract | Path to tesseract binary |
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `DATABASE_URL` | Yes | sqlite+aiosqlite:///./idps.db | Switch to PostgreSQL for production |
+| `SECRET_KEY` | Yes | — | At least 32 characters |
+| `CORS_ORIGINS` | Yes | localhost | JSON array of allowed origins |
+| `UPLOAD_DIR` | No | ./uploads | Where files get stored |
+| `MAX_FILE_SIZE_MB` | No | 50 | Max upload size |
+| `TESSERACT_CMD` | No | tesseract | Full path if not in PATH |
 | `OCR_LANGUAGE` | No | eng | Tesseract language code |
-| `CORS_ORIGINS` | Yes | [...] | JSON array of allowed origins |
-| `DEBUG` | No | false | Enable debug mode |
-| `NEXT_PUBLIC_API_URL` | Yes | http://localhost:8000 | Backend API URL |
+| `NEXT_PUBLIC_API_URL` | Yes | http://localhost:8000 | Backend URL |
 | `NEXT_PUBLIC_WS_URL` | Yes | ws://localhost:8000 | WebSocket URL |
 
 ---
 
-## 🐛 Common Issues & Fixes
+## Common issues
 
-### Tesseract not found
+**Tesseract not found**
 ```bash
-# Error: tesseract is not installed or not in PATH
-# Fix:
-sudo apt-get install tesseract-ocr tesseract-ocr-eng  # Linux
-brew install tesseract  # macOS
-
-# Or set explicit path in .env:
+# Set the path explicitly in .env
 TESSERACT_CMD=/usr/bin/tesseract
 ```
 
-### spaCy model not found
+**spaCy model missing**
 ```bash
-# Error: Can't find model 'en_core_web_sm'
-# Fix:
 python -m spacy download en_core_web_sm
 ```
 
-### WebSocket connection failed
-```
-# Check CORS origins include your frontend URL
-# For production, use wss:// not ws://
-NEXT_PUBLIC_WS_URL=wss://your-backend.onrender.com
-```
+**CORS errors in browser**
+Make sure your frontend URL is in `CORS_ORIGINS` on the backend.
 
-### Large file upload fails (413)
+**WebSocket not connecting**
+Use `wss://` not `ws://` in production.
+
+**OpenCV crash on Linux servers**
 ```bash
-# Increase max file size in .env:
-MAX_FILE_SIZE_MB=100
-
-# Also configure your reverse proxy (nginx):
-client_max_body_size 100M;
-```
-
-### OpenCV import error on Linux
-```bash
-pip install opencv-python-headless  # Use headless version on servers
+pip install opencv-python-headless
 sudo apt-get install libglib2.0-0 libsm6 libxext6 libxrender-dev
 ```
 
-### Database locked (SQLite in production)
-```bash
-# SQLite is for development only.
-# For production, use PostgreSQL:
+**SQLite locked errors**
+SQLite isn't meant for concurrent production traffic. Switch to PostgreSQL:
+```
 DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/idps
-pip install asyncpg
 ```
-
-### CORS error in browser
-```python
-# In backend .env, ensure your frontend URL is in CORS_ORIGINS:
-CORS_ORIGINS=["https://your-app.vercel.app","http://localhost:3000"]
-```
-
-### Render cold start (free tier)
-Free Render services sleep after 15 min inactivity.
-- Use https://cron-job.org to ping `/api/health` every 14 minutes
-- Or upgrade to Render Starter plan ($7/mo) for always-on
 
 ---
 
-## ✅ Production Checklist
-
-### Security
-- [ ] Change `SECRET_KEY` to random 64-char string
-- [ ] Set `DEBUG=false`
-- [ ] Restrict `CORS_ORIGINS` to your frontend domain only
-- [ ] Use PostgreSQL instead of SQLite
-- [ ] Add rate limiting (e.g., slowapi)
-- [ ] Enable HTTPS (automatic on Render/Vercel)
-
-### Performance
-- [ ] Use PostgreSQL for production database
-- [ ] Configure file size limits appropriately
-- [ ] Add Redis for task queue (for high volume)
-- [ ] Set up CDN for static assets (Vercel handles this)
-
-### Reliability
-- [ ] Set up database backups
-- [ ] Configure error monitoring (Sentry)
-- [ ] Add health check endpoint (✅ already done)
-- [ ] Configure log aggregation
-
-### OCR Quality
-- [ ] Install all Tesseract language packs you need
-- [ ] Test with your specific document types
-- [ ] Tune preprocessing parameters for your use case
-
-### Monitoring
-- [ ] Add uptime monitoring (UptimeRobot - free)
-- [ ] Set up Render/Vercel alerts
-- [ ] Review logs regularly
-
----
-
-## 🧪 Running Tests
+## Running tests
 
 ```bash
 cd backend
-pip install pytest pytest-asyncio httpx
-
-# Run all tests
+pip install pytest pytest-asyncio httpx pytest-cov
 pytest tests/ -v
-
-# Run specific test
-pytest tests/test_api.py::test_health -v
-
-# With coverage
-pip install pytest-cov
 pytest tests/ --cov=app --cov-report=html
 ```
 
 ---
 
-## 📄 License
+## Project structure
 
-MIT License. See [LICENSE](LICENSE) for details.
+```
+idps/
+├── backend/
+│   ├── app/
+│   │   ├── api/          # documents, export, health endpoints
+│   │   ├── core/         # config, database, websocket manager
+│   │   ├── models/       # SQLAlchemy document model
+│   │   └── services/     # ocr, nlp, processing orchestrator
+│   ├── tests/
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── app/          # Next.js pages and global styles
+│   │   ├── components/   # dashboard and document components
+│   │   ├── hooks/        # useWebSocket
+│   │   └── lib/          # API client
+│   ├── Dockerfile
+│   └── package.json
+├── docker-compose.yml
+├── .env.example
+└── .gitignore
+```
 
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch: `git checkout -b feat/amazing-feature`
-3. Commit: `git commit -m 'feat: add amazing feature'`
-4. Push: `git push origin feat/amazing-feature`
-5. Open a Pull Request
-
----
-
-*Built with ❤️ using FastAPI + Next.js + Tesseract OCR + spaCy*
+Built with FastAPI, Next.js, Tesseract OCR, and spaCy.
