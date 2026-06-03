@@ -3,341 +3,198 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Document, documentsApi } from '@/lib/api';
 
-interface DocumentViewerProps {
-  document: Document;
-  onClose: () => void;
-  onDelete: () => void;
-}
+interface Props { document: Document; onClose: () => void; onDelete: () => void; }
 
-const TYPE_ICONS: Record<string, string> = {
-  invoice: '🧾', receipt: '🏷️', kyc_form: '🪪',
-  bank_statement: '🏦', business_document: '📋', unknown: '📄',
-};
+const TYPE_ICONS: Record<string,string> = { invoice:'🧾', receipt:'🏷️', kyc_form:'🪪', bank_statement:'🏦', business_document:'📋', unknown:'📄' };
+const ENTITY_ICONS: Record<string,string> = { persons:'👤', organizations:'🏢', locations:'📍', dates:'📅', money:'💰', misc:'🏷️' };
 
-function ConfidenceGauge({ value }: { value: number }) {
-  const pct = Math.round(value * 100);
-  const color = pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#f43f5e';
-  const r = 24;
-  const circ = 2 * Math.PI * r;
-  const dash = (pct / 100) * circ;
-
+function ConfGauge({ value }: { value: number }) {
+  const pct = Math.round(value*100);
+  const color = pct>=75?'#10b981':pct>=50?'#f59e0b':'#ef4444';
+  const r=22, c=2*Math.PI*r, d=(pct/100)*c;
   return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width="64" height="64" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(96,96,160,0.2)" strokeWidth="4" />
-        <circle cx="32" cy="32" r={r} fill="none" stroke={color} strokeWidth="4"
-          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-          transform="rotate(-90 32 32)" />
-        <text x="32" y="37" textAnchor="middle" fill={color}
-          fontSize="13" fontWeight="bold" fontFamily="DM Mono, monospace">
-          {pct}%
-        </text>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+      <svg width="60" height="60" viewBox="0 0 60 60">
+        <circle cx="30" cy="30" r={r} fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="5"/>
+        <circle cx="30" cy="30" r={r} fill="none" stroke={color} strokeWidth="5"
+          strokeDasharray={`${d} ${c}`} strokeLinecap="round" transform="rotate(-90 30 30)"
+          style={{ transition:'stroke-dasharray 1s ease' }}/>
+        <text x="30" y="35" textAnchor="middle" fill={color} fontSize="13" fontWeight="800" fontFamily="JetBrains Mono,monospace">{pct}%</text>
       </svg>
-      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Overall Confidence</span>
+      <span style={{ fontSize:10, fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.06em' }}>Confidence</span>
     </div>
   );
 }
 
-export default function DocumentViewer({ document, onClose, onDelete }: DocumentViewerProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'text' | 'entities' | 'fields' | 'keywords'>('overview');
+const TABS = [
+  { id:'overview', label:'📊 Overview' },
+  { id:'text', label:'📝 Raw Text' },
+  { id:'fields', label:'🗂️ Fields' },
+  { id:'entities', label:'🏷️ Entities' },
+  { id:'keywords', label:'🔑 Keywords' },
+] as const;
 
-  const tabs = [
-    { id: 'overview', label: '📊 Overview' },
-    { id: 'text', label: '📝 Raw Text' },
-    { id: 'fields', label: '🗂️ Fields' },
-    { id: 'entities', label: '🏷️ Entities' },
-    { id: 'keywords', label: '🔑 Keywords' },
-  ] as const;
+export default function DocumentViewer({ document, onClose, onDelete }: Props) {
+  const [tab, setTab] = useState<'overview'|'text'|'fields'|'entities'|'keywords'>('overview');
 
   return (
-    <motion.div
-      initial={{ x: '100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: '100%', opacity: 0 }}
-      transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-      className="fixed inset-y-0 right-0 z-50 flex flex-col"
-      style={{
-        width: 'min(100vw, 640px)',
-        background: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border)',
-        boxShadow: '-20px 0 60px rgba(0,0,0,0.4)',
-      }}>
+    <>
+      <motion.div className="viewer-backdrop" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} onClick={onClose} />
+      <motion.div className="viewer-panel" initial={{ x:'100%' }} animate={{ x:0 }} exit={{ x:'100%' }} transition={{ type:'spring', damping:28, stiffness:280 }}>
 
-      {/* Header */}
-      <div className="flex items-start justify-between p-5 flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="text-2xl mt-0.5 flex-shrink-0">
-            {TYPE_ICONS[document.document_type || 'unknown']}
-          </div>
-          <div className="min-w-0">
-            <h2 className="font-semibold truncate text-base" title={document.original_filename}
-              style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-              {document.original_filename}
-            </h2>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {document.document_type && (
-                <span className="text-xs px-2 py-0.5 rounded-full capitalize"
-                  style={{ background: 'rgba(96,96,160,0.15)', color: 'var(--text-secondary)', border: '1px solid rgba(96,96,160,0.2)' }}>
-                  {document.document_type.replace('_', ' ')}
-                </span>
-              )}
-              {document.page_count && (
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{document.page_count} page(s)</span>
-              )}
-              {document.processing_time && (
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>⚡ {document.processing_time}s</span>
-              )}
+        <div className="viewer-header">
+          <div className="viewer-header-top">
+            <div className="viewer-title-group">
+              <span className="viewer-doc-icon">{TYPE_ICONS[document.document_type||'unknown']}</span>
+              <div style={{ minWidth:0 }}>
+                <div className="viewer-filename" title={document.original_filename}>{document.original_filename}</div>
+                <div className="viewer-meta">
+                  {document.document_type && <span className="tag-sm tag-indigo">{document.document_type.replace(/_/g,' ')}</span>}
+                  {document.page_count && <span className="tag-sm" style={{ background:'rgba(0,0,0,0.05)', color:'#6b7280' }}>{document.page_count}p</span>}
+                  {document.processing_time && <span className="tag-sm" style={{ background:'rgba(0,0,0,0.05)', color:'#6b7280' }}>⚡{document.processing_time}s</span>}
+                </div>
+              </div>
             </div>
+            <button className="viewer-close" onClick={onClose}>✕</button>
+          </div>
+          <div className="viewer-tabs">
+            {TABS.map(t => <button key={t.id} className={`viewer-tab ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}
           </div>
         </div>
-        <button onClick={onClose} className="p-2 rounded-lg flex-shrink-0 transition-all ml-3"
-          style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }}>
-          ✕
-        </button>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 px-4 pt-3 flex-shrink-0 overflow-x-auto">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className="px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-all font-medium"
-            style={{
-              background: activeTab === tab.id ? 'rgba(245,158,11,0.15)' : 'transparent',
-              color: activeTab === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
-              border: activeTab === tab.id ? '1px solid rgba(245,158,11,0.3)' : '1px solid transparent',
-            }}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+        <div className="viewer-body">
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5">
-
-        {/* OVERVIEW TAB */}
-        {activeTab === 'overview' && (
-          <div className="space-y-5">
-            {/* Confidence + Summary */}
-            <div className="flex gap-4">
-              {document.confidence_score !== null && (
-                <div className="flex-shrink-0">
-                  <ConfidenceGauge value={document.confidence_score} />
+          {/* OVERVIEW */}
+          {tab==='overview' && (
+            <div>
+              {(document.confidence_score!==null || document.summary) && (
+                <div style={{ display:'flex', gap:12, marginBottom:16, alignItems:'flex-start' }}>
+                  {document.confidence_score!==null && <ConfGauge value={document.confidence_score} />}
+                  {document.summary && (
+                    <div className="summary-card" style={{ flex:1 }}>
+                      <div className="summary-label">🤖 AI Summary</div>
+                      <div className="summary-text">{document.summary}</div>
+                    </div>
+                  )}
                 </div>
               )}
-              {document.summary && (
-                <div className="flex-1 p-4 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>AI SUMMARY</p>
-                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{document.summary}</p>
-                </div>
-              )}
-            </div>
 
-            {/* Field Confidence bars */}
-            {document.field_confidences && Object.keys(document.field_confidences).length > 0 && (
-              <div className="p-4 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-muted)' }}>FIELD CONFIDENCE SCORES</p>
-                <div className="space-y-2">
-                  {Object.entries(document.field_confidences).slice(0, 8).map(([field, conf]) => (
-                    <div key={field} className="flex items-center gap-3">
-                      <span className="text-xs w-28 truncate capitalize" style={{ color: 'var(--text-secondary)' }}>
-                        {field.replace('_', ' ')}
-                      </span>
-                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(96,96,160,0.15)' }}>
-                        <div className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${(conf as number) * 100}%`,
-                            background: (conf as number) > 0.7 ? 'var(--success)' : 'var(--warning)',
-                          }} />
-                      </div>
-                      <span className="text-xs w-10 text-right" style={{ color: 'var(--text-muted)' }}>
-                        {Math.round((conf as number) * 100)}%
-                      </span>
+              {document.raw_text && (
+                <div className="overview-grid" style={{ marginBottom:16 }}>
+                  {[
+                    { l:'Characters', v: document.raw_text.length.toLocaleString(), c:'#6366f1' },
+                    { l:'Words', v: document.raw_text.split(/\s+/).filter(Boolean).length.toLocaleString(), c:'#10b981' },
+                    { l:'Pages', v: document.page_count ?? 1, c:'#f59e0b' },
+                    { l:'Process Time', v: document.processing_time ? `${document.processing_time}s` : '—', c:'#ec4899' },
+                  ].map(s => (
+                    <div key={s.l} className="overview-card">
+                      <div className="overview-card-label">{s.l}</div>
+                      <div className="overview-card-val" style={{ color:s.c }}>{s.v}</div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Quick stats */}
-            {document.raw_text && (
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: 'Characters', value: document.raw_text.length.toLocaleString() },
-                  { label: 'Words', value: document.raw_text.split(/\s+/).length.toLocaleString() },
-                  { label: 'Lines', value: document.raw_text.split('\n').length.toLocaleString() },
-                ].map(stat => (
-                  <div key={stat.label} className="p-3 rounded-xl text-center"
-                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                    <div className="text-lg font-bold" style={{ color: 'var(--accent)', fontFamily: 'var(--font-display)' }}>
-                      {stat.value}
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{stat.label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+              {document.field_confidences && Object.keys(document.field_confidences).length>0 && (
+                <div className="conf-section">
+                  <div className="conf-section-title">Field Confidence Scores</div>
+                  {Object.entries(document.field_confidences).slice(0,8).map(([f,c]) => {
+                    const pct = Math.round((c as number)*100);
+                    const color = pct>=75?'#10b981':pct>=50?'#f59e0b':'#ef4444';
+                    return (
+                      <div key={f} className="conf-row">
+                        <div className="conf-row-label" style={{ textTransform:'capitalize' }}>{f.replace(/_/g,' ')}</div>
+                        <div className="conf-row-bar"><div className="conf-row-fill" style={{ width:`${pct}%`, background:color }} /></div>
+                        <div className="conf-row-pct" style={{ color }}>{pct}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
-            {/* Error */}
-            {document.error_message && (
-              <div className="p-4 rounded-xl" style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)' }}>
-                <p className="text-xs font-medium mb-1" style={{ color: '#f43f5e' }}>ERROR</p>
-                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{document.error_message}</p>
-              </div>
-            )}
-          </div>
-        )}
+              {document.error_message && (
+                <div className="error-card">
+                  <div className="error-label">❌ Error</div>
+                  <div className="error-msg">{document.error_message}</div>
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* RAW TEXT TAB */}
-        {activeTab === 'text' && (
-          <div className="h-full">
-            {document.raw_text ? (
-              <pre className="text-xs leading-relaxed whitespace-pre-wrap p-4 rounded-xl overflow-auto"
-                style={{
-                  background: 'var(--bg-card)', color: 'var(--text-secondary)',
-                  border: '1px solid var(--border)', fontFamily: 'var(--font-geist-mono)',
-                  maxHeight: '100%',
-                }}>
-                {document.raw_text}
-              </pre>
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }} className="text-sm">No text extracted.</p>
-            )}
-          </div>
-        )}
+          {/* TEXT */}
+          {tab==='text' && (
+            document.raw_text
+              ? <pre className="text-block">{document.raw_text}</pre>
+              : <div style={{ color:'#9ca3af', textAlign:'center', padding:'40px 0' }}>No text extracted</div>
+          )}
 
-        {/* FIELDS TAB */}
-        {activeTab === 'fields' && (
-          <div className="space-y-3">
-            {document.structured_data && Object.keys(document.structured_data).length > 0 ? (
-              Object.entries(document.structured_data).map(([field, value]) => (
-                <div key={field} className="p-3 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium uppercase tracking-wide capitalize"
-                      style={{ color: 'var(--text-muted)' }}>
-                      {field.replace(/_/g, ' ')}
-                    </span>
+          {/* FIELDS */}
+          {tab==='fields' && (
+            document.structured_data && Object.keys(document.structured_data).length>0
+              ? Object.entries(document.structured_data).map(([field,value]) => (
+                <div key={field} className="field-card">
+                  <div className="field-card-header">
+                    <div className="field-name">{field.replace(/_/g,' ')}</div>
                     {document.field_confidences?.[field] && (
-                      <span className="text-xs px-2 py-0.5 rounded-full"
-                        style={{
-                          background: 'rgba(245,158,11,0.1)',
-                          color: 'var(--accent)',
-                          border: '1px solid rgba(245,158,11,0.2)',
-                        }}>
-                        {Math.round(document.field_confidences[field] * 100)}%
-                      </span>
+                      <div className="field-conf">{Math.round((document.field_confidences[field] as number)*100)}%</div>
                     )}
                   </div>
-                  {Array.isArray(value) ? (
-                    <div className="space-y-1">
-                      {value.slice(0, 10).map((item, i) => (
-                        <div key={i} className="text-xs p-2 rounded-lg"
-                          style={{ background: 'rgba(96,96,160,0.08)', color: 'var(--text-secondary)' }}>
-                          {typeof item === 'object' ? JSON.stringify(item) : String(item)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {String(value)}
-                    </p>
-                  )}
+                  {Array.isArray(value)
+                    ? <div style={{ fontSize:12.5, color:'#374151' }}>{value.slice(0,8).map((item,i) => <div key={i} style={{ padding:'3px 0', borderBottom:'1px solid rgba(0,0,0,0.04)' }}>{typeof item==='object'?JSON.stringify(item):String(item)}</div>)}</div>
+                    : <div className="field-val">{String(value)}</div>
+                  }
                 </div>
               ))
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }} className="text-sm">No structured fields extracted.</p>
-            )}
-          </div>
-        )}
+              : <div style={{ color:'#9ca3af', textAlign:'center', padding:'40px 0' }}>No structured fields extracted</div>
+          )}
 
-        {/* ENTITIES TAB */}
-        {activeTab === 'entities' && (
-          <div className="space-y-4">
-            {document.entities && Object.entries(document.entities).some(([, v]) => (v as string[]).length > 0) ? (
-              Object.entries(document.entities).map(([type, values]) => {
+          {/* ENTITIES */}
+          {tab==='entities' && (
+            document.entities && Object.values(document.entities).some(v => (v as string[]).length>0)
+              ? Object.entries(document.entities).map(([type, values]) => {
                 const vals = values as string[];
-                if (vals.length === 0) return null;
-                const icons: Record<string, string> = {
-                  persons: '👤', organizations: '🏢', locations: '📍',
-                  dates: '📅', money: '💰', misc: '🏷️'
-                };
+                if (!vals.length) return null;
                 return (
-                  <div key={type}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span>{icons[type] || '🏷️'}</span>
-                      <p className="text-xs font-medium uppercase tracking-wide capitalize"
-                        style={{ color: 'var(--text-muted)' }}>
-                        {type} ({vals.length})
-                      </p>
+                  <div key={type} className="entity-section">
+                    <div className="entity-section-head">
+                      <span>{ENTITY_ICONS[type]||'🏷️'}</span>
+                      <span className="entity-type-label">{type}</span>
+                      <span className="entity-count">{vals.length}</span>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {vals.map((val, i) => (
-                        <span key={i} className="text-xs px-2.5 py-1 rounded-full"
-                          style={{ background: 'rgba(96,96,160,0.1)', color: 'var(--text-secondary)', border: '1px solid rgba(96,96,160,0.15)' }}>
-                          {val}
-                        </span>
-                      ))}
+                    <div className="entity-tags">
+                      {vals.map((v,i) => <span key={i} className="entity-tag">{v}</span>)}
                     </div>
                   </div>
                 );
               })
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }} className="text-sm">No entities extracted.</p>
-            )}
-          </div>
-        )}
+              : <div style={{ color:'#9ca3af', textAlign:'center', padding:'40px 0' }}>No entities extracted</div>
+          )}
 
-        {/* KEYWORDS TAB */}
-        {activeTab === 'keywords' && (
-          <div className="space-y-2">
-            {document.keywords && document.keywords.length > 0 ? (
-              <>
-                <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                  Top {document.keywords.length} keywords by frequency
-                </p>
-                {document.keywords.map((kw, i) => (
-                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg"
-                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                    <span className="text-xs w-5 text-center" style={{ color: 'var(--text-muted)' }}>{i + 1}</span>
-                    <span className="flex-1 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{kw.word}</span>
-                    <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(96,96,160,0.2)' }}>
-                      <div className="h-full rounded-full" style={{
-                        width: `${(kw.score / (document.keywords![0].score || 1)) * 100}%`,
-                        background: 'var(--accent)',
-                      }} />
-                    </div>
-                    <span className="text-xs w-8 text-right" style={{ color: 'var(--text-muted)' }}>{kw.count}</span>
+          {/* KEYWORDS */}
+          {tab==='keywords' && (
+            document.keywords && document.keywords.length>0
+              ? document.keywords.map((kw,i) => (
+                <div key={i} className="kw-row">
+                  <div className="kw-rank">#{i+1}</div>
+                  <div className="kw-word">{kw.word}</div>
+                  <div className="kw-bar-wrap">
+                    <div className="kw-bar-fill" style={{ width:`${(kw.score/(document.keywords![0].score||1))*100}%` }} />
                   </div>
-                ))}
-              </>
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }} className="text-sm">No keywords extracted.</p>
-            )}
+                  <div className="kw-count">{kw.count}</div>
+                </div>
+              ))
+              : <div style={{ color:'#9ca3af', textAlign:'center', padding:'40px 0' }}>No keywords extracted</div>
+          )}
+        </div>
+
+        {document.status==='completed' && (
+          <div className="viewer-footer">
+            <a href={documentsApi.exportJson(document.id)} download className="export-btn export-json">↓ Export JSON</a>
+            <a href={documentsApi.exportCsv(document.id)} download className="export-btn export-csv">↓ Export CSV</a>
+            <button className="delete-btn-sm" onClick={onDelete}>🗑️</button>
           </div>
         )}
-      </div>
-
-      {/* Footer Actions */}
-      {document.status === 'completed' && (
-        <div className="p-4 flex-shrink-0 flex items-center gap-3"
-          style={{ borderTop: '1px solid var(--border)' }}>
-          <a href={documentsApi.exportJson(document.id)} download
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-center transition-all"
-            style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--accent)', border: '1px solid rgba(245,158,11,0.3)' }}>
-            ↓ Export JSON
-          </a>
-          <a href={documentsApi.exportCsv(document.id)} download
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-center transition-all"
-            style={{ background: 'rgba(96,96,160,0.15)', color: 'var(--text-secondary)', border: '1px solid rgba(96,96,160,0.3)' }}>
-            ↓ Export CSV
-          </a>
-          <button onClick={onDelete}
-            className="py-2.5 px-4 rounded-xl text-sm font-medium transition-all"
-            style={{ background: 'rgba(244,63,94,0.1)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.2)' }}>
-            🗑️
-          </button>
-        </div>
-      )}
-    </motion.div>
+      </motion.div>
+    </>
   );
 }

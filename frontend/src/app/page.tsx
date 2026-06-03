@@ -2,29 +2,33 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { v4 as uuidv4 } from 'uuid';
 import { documentsApi, Document, StatsResponse } from '@/lib/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import UploadZone from '@/components/document/UploadZone';
 import DocumentCard from '@/components/document/DocumentCard';
 import DocumentViewer from '@/components/document/DocumentViewer';
-import StatsBar from '@/components/dashboard/StatsBar';
 import ProcessingOverlay from '@/components/document/ProcessingOverlay';
-import Header from '@/components/dashboard/Header';
+
+function getClientId() {
+  if (typeof window === 'undefined') return 'server';
+  let id = sessionStorage.getItem('idps_client_id');
+  if (!id) { id = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('idps_client_id', id); }
+  return id;
+}
 
 export default function Home() {
-  const clientId = useRef(uuidv4()).current;
-  const { connected, lastUpdate } = useWebSocket(clientId);
-
+  const clientId = useRef('');
+  useEffect(() => { clientId.current = getClientId(); }, []);
+  const { connected, lastUpdate } = useWebSocket(clientId.current || 'init');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   const [loading, setLoading] = useState(true);
   const [processingDocs, setProcessingDocs] = useState<Record<string, { progress: number; message: string; step: string }>>({});
-  const [view, setView] = useState<'grid' | 'list'>('grid');
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
+  const [uploading, setUploading] = useState(false);
 
   const fetchDocuments = useCallback(async () => {
     try {
@@ -33,274 +37,170 @@ export default function Home() {
       const res = await documentsApi.list(params);
       setDocuments(res.data.documents);
       setTotal(res.data.total);
-    } catch (e) {
-      toast.error('Failed to load documents');
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error('Failed to load documents'); }
+    finally { setLoading(false); }
   }, [page, filter]);
 
   const fetchStats = useCallback(async () => {
-    try {
-      const res = await documentsApi.stats();
-      setStats(res.data);
-    } catch {}
+    try { const res = await documentsApi.stats(); setStats(res.data); } catch {}
   }, []);
 
   useEffect(() => {
-    fetchDocuments();
-    fetchStats();
-    const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
+    fetchDocuments(); fetchStats();
+    const i = setInterval(fetchStats, 30000);
+    return () => clearInterval(i);
   }, [fetchDocuments, fetchStats]);
 
-  // Handle WebSocket updates
   useEffect(() => {
     if (!lastUpdate) return;
-
     if (lastUpdate.type === 'processing_update') {
-      setProcessingDocs(prev => ({
-        ...prev,
-        [lastUpdate.document_id]: {
-          progress: lastUpdate.progress || 0,
-          message: lastUpdate.message || '',
-          step: lastUpdate.step || '',
-        },
-      }));
+      setProcessingDocs(prev => ({ ...prev, [lastUpdate.document_id]: { progress: lastUpdate.progress || 0, message: lastUpdate.message || '', step: lastUpdate.step || '' } }));
     } else if (lastUpdate.type === 'processing_complete') {
-      setProcessingDocs(prev => {
-        const n = { ...prev };
-        delete n[lastUpdate.document_id];
-        return n;
-      });
-      toast.success('Document processed successfully!');
-      fetchDocuments();
-      fetchStats();
-      // Update selected doc if it's the one that completed
-      if (selectedDoc?.id === lastUpdate.document_id && lastUpdate.document) {
-        setSelectedDoc(lastUpdate.document);
-      }
+      setProcessingDocs(prev => { const n = { ...prev }; delete n[lastUpdate.document_id]; return n; });
+      toast.success('✨ Document processed!');
+      fetchDocuments(); fetchStats();
+      if (selectedDoc?.id === lastUpdate.document_id && lastUpdate.document) setSelectedDoc(lastUpdate.document);
     } else if (lastUpdate.type === 'processing_error') {
-      setProcessingDocs(prev => {
-        const n = { ...prev };
-        delete n[lastUpdate.document_id];
-        return n;
-      });
-      toast.error(`Processing failed: ${lastUpdate.error}`);
-      fetchDocuments();
+      setProcessingDocs(prev => { const n = { ...prev }; delete n[lastUpdate.document_id]; return n; });
+      toast.error('Processing failed'); fetchDocuments();
     }
   }, [lastUpdate, fetchDocuments, fetchStats, selectedDoc?.id]);
 
   const handleUpload = async (files: File[]) => {
-    if (files.length === 0) return;
-
+    if (files.length === 0 || uploading) return;
+    setUploading(true);
     const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
     try {
       if (files.length === 1) {
-        const res = await documentsApi.upload(files[0], clientId);
-        const docId = res.data.document_id;
-        setProcessingDocs(prev => ({
-          ...prev,
-          [docId]: { progress: 0, message: 'Queued for processing...', step: 'init' },
-        }));
+        const res = await documentsApi.upload(files[0], clientId.current);
+        setProcessingDocs(prev => ({ ...prev, [res.data.document_id]: { progress: 0, message: 'Queued...', step: 'init' } }));
       } else {
-        const res = await documentsApi.batchUpload(files, clientId);
-        res.data.documents.forEach((d: any) => {
-          setProcessingDocs(prev => ({
-            ...prev,
-            [d.document_id]: { progress: 0, message: 'Queued...', step: 'init' },
-          }));
-        });
+        const res = await documentsApi.batchUpload(files, clientId.current);
+        res.data.documents.forEach((d: any) => { setProcessingDocs(prev => ({ ...prev, [d.document_id]: { progress: 0, message: 'Queued...', step: 'init' } })); });
       }
-      toast.success('Upload successful! Processing...', { id: toastId });
+      toast.success('Uploaded! Processing now...', { id: toastId });
       await fetchDocuments();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Upload failed', { id: toastId });
-    }
+    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Upload failed', { id: toastId }); }
+    finally { setUploading(false); }
   };
 
   const handleDelete = async (id: string) => {
-    try {
-      await documentsApi.delete(id);
-      toast.success('Document deleted');
-      if (selectedDoc?.id === id) setSelectedDoc(null);
-      fetchDocuments();
-      fetchStats();
-    } catch {
-      toast.error('Delete failed');
-    }
+    try { await documentsApi.delete(id); toast.success('Deleted'); if (selectedDoc?.id === id) setSelectedDoc(null); fetchDocuments(); fetchStats(); }
+    catch { toast.error('Delete failed'); }
   };
 
   const handleSelect = async (doc: Document) => {
-    if (doc.status === 'completed') {
-      // Refresh to get latest data
-      try {
-        const res = await documentsApi.get(doc.id);
-        setSelectedDoc(res.data);
-      } catch {
-        setSelectedDoc(doc);
-      }
-    } else {
-      setSelectedDoc(doc);
-    }
+    if (doc.status !== 'completed') return;
+    try { const res = await documentsApi.get(doc.id); setSelectedDoc(res.data); }
+    catch { setSelectedDoc(doc); }
   };
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      {/* Ambient background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full opacity-5"
-          style={{ background: 'radial-gradient(circle, #6060a0, transparent)', filter: 'blur(60px)' }} />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full opacity-5"
-          style={{ background: 'radial-gradient(circle, #f59e0b, transparent)', filter: 'blur(80px)' }} />
-        <div className="absolute inset-0 bg-grid-pattern opacity-30" />
+    <div className="idps-root">
+      <div className="mesh-bg" aria-hidden="true">
+        <div className="blob blob-1" /><div className="blob blob-2" /><div className="blob blob-3" /><div className="blob blob-4" />
       </div>
+      <header className="site-header">
+        <div className="header-inner">
+          <div className="logo-group">
+            <div className="logo-mark">⚡</div>
+            <div><div className="logo-name">IDPS</div><div className="logo-tagline">Intelligent Document Processing</div></div>
+          </div>
+          <div className="header-actions">
+            <a href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/docs`} target="_blank" rel="noopener noreferrer" className="btn-ghost">📋 API Docs</a>
+            <div className={`status-badge ${connected ? 'online' : 'offline'}`}><span className="status-dot" />{connected ? 'Live' : 'Offline'}</div>
+          </div>
+        </div>
+      </header>
+      <main className="main-wrap">
+        <motion.section className="hero-section" initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}>
+          <div className="hero-chip">✨ AI-Powered · Real-time · Production Ready</div>
+          <h1 className="hero-headline">Turn Documents Into<br /><em>Structured Intelligence</em></h1>
+          <p className="hero-body">Upload invoices, receipts, KYC forms & bank statements. Get extracted data, named entities, summaries & confidence scores — instantly.</p>
+          <div className="hero-features">
+            {['🔍 OCR + Image Preprocessing','🧠 NLP & Named Entities','📊 Structured Field Extraction','⚡ Real-time WebSocket Updates'].map(f => (
+              <span key={f} className="feature-tag">{f}</span>
+            ))}
+          </div>
+        </motion.section>
 
-      <Header connected={connected} />
-
-      <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
-        {/* Stats */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <StatsBar stats={stats} />
+        <motion.div className="stats-band" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+          {[
+            { icon: '📁', label: 'Total Docs', val: stats?.total_documents ?? 0, color: '#6366f1' },
+            { icon: '✅', label: 'Completed', val: stats?.completed ?? 0, color: '#10b981' },
+            { icon: '🎯', label: 'Avg Accuracy', val: stats?.avg_confidence ? `${(stats.avg_confidence * 100).toFixed(0)}%` : '—', color: '#f59e0b' },
+            { icon: '⚡', label: 'Avg Speed', val: stats?.avg_processing_time ? `${stats.avg_processing_time.toFixed(1)}s` : '—', color: '#ec4899' },
+            { icon: '❌', label: 'Failed', val: stats?.failed ?? 0, color: '#ef4444' },
+          ].map((s, i) => (
+            <motion.div key={s.label} className="stat-tile" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 * i + 0.3 }}>
+              <span className="stat-emoji">{s.icon}</span>
+              <span className="stat-num" style={{ color: s.color }}>{s.val}</span>
+              <span className="stat-lbl">{s.label}</span>
+            </motion.div>
+          ))}
         </motion.div>
 
-        {/* Upload Zone */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="mt-8">
-          <UploadZone onUpload={handleUpload} />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+          <UploadZone onUpload={handleUpload} uploading={uploading} />
         </motion.div>
 
-        {/* Active Processing */}
         <AnimatePresence>
           {Object.keys(processingDocs).length > 0 && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }} className="mt-6">
-              <div className="grid gap-3">
-                {Object.entries(processingDocs).map(([docId, info]) => (
-                  <ProcessingOverlay key={docId} docId={docId} {...info} />
-                ))}
-              </div>
+            <motion.div className="proc-band" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+              {Object.entries(processingDocs).map(([docId, info]) => (
+                <ProcessingOverlay key={docId} docId={docId} {...info} />
+              ))}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Documents Section */}
-        <div className="mt-10">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
-                Document History
-              </h2>
-              <span className="text-sm px-2 py-0.5 rounded-full" style={{
-                background: 'rgba(96,96,160,0.15)', color: 'var(--text-secondary)',
-                border: '1px solid rgba(96,96,160,0.2)'
-              }}>
-                {total} total
-              </span>
+        <section className="library-section">
+          <div className="library-header">
+            <div className="library-title-group">
+              <h2 className="library-title">Document Library</h2>
+              <span className="doc-badge">{total}</span>
             </div>
-            <div className="flex items-center gap-3">
-              {/* Filters */}
-              <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                {['all', 'completed', 'processing', 'failed'].map(f => (
-                  <button key={f} onClick={() => { setFilter(f); setPage(0); }}
-                    className="px-3 py-1 rounded-md text-xs font-medium transition-all capitalize"
-                    style={{
-                      background: filter === f ? 'rgba(245,158,11,0.15)' : 'transparent',
-                      color: filter === f ? 'var(--accent)' : 'var(--text-secondary)',
-                      border: filter === f ? '1px solid rgba(245,158,11,0.3)' : '1px solid transparent',
-                    }}>
-                    {f}
-                  </button>
-                ))}
-              </div>
-              {/* View toggle */}
-              <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                {(['grid', 'list'] as const).map(v => (
-                  <button key={v} onClick={() => setView(v)}
-                    className="px-3 py-1 rounded-md text-xs transition-all"
-                    style={{
-                      background: view === v ? 'rgba(245,158,11,0.15)' : 'transparent',
-                      color: view === v ? 'var(--accent)' : 'var(--text-secondary)',
-                    }}>
-                    {v === 'grid' ? '⊞ Grid' : '☰ List'}
-                  </button>
-                ))}
-              </div>
+            <div className="filter-row">
+              {[['all','🗂️ All'],['completed','✅ Done'],['processing','⚙️ Active'],['failed','❌ Failed']].map(([f,label]) => (
+                <button key={f} onClick={() => { setFilter(f); setPage(0); }} className={`flt-btn ${filter === f ? 'flt-active' : ''}`}>{label}</button>
+              ))}
             </div>
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-24">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-                  style={{ borderColor: 'rgba(245,158,11,0.5)', borderTopColor: 'transparent' }} />
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading documents...</p>
-              </div>
-            </div>
+            <div className="load-wrap"><div className="load-ring" /><p>Loading your documents...</p></div>
           ) : documents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <div className="text-6xl opacity-20">📄</div>
-              <p className="text-lg" style={{ color: 'var(--text-secondary)' }}>No documents yet</p>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Upload your first document above to get started</p>
+            <div className="empty-wrap">
+              <div className="empty-emoji">🗃️</div>
+              <h3>No documents yet</h3>
+              <p>Drop a file above to get started</p>
             </div>
           ) : (
             <>
-              <div className={view === 'grid'
-                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
-                : 'flex flex-col gap-3'}>
+              <div className="docs-grid">
                 <AnimatePresence mode="popLayout">
                   {documents.map((doc, i) => (
-                    <motion.div key={doc.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      transition={{ delay: i * 0.04 }}>
-                      <DocumentCard
-                        document={doc}
-                        isSelected={selectedDoc?.id === doc.id}
-                        processingInfo={processingDocs[doc.id]}
-                        view={view}
-                        onSelect={() => handleSelect(doc)}
-                        onDelete={() => handleDelete(doc.id)}
-                      />
+                    <motion.div key={doc.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ delay: i * 0.04 }}>
+                      <DocumentCard document={doc} isSelected={selectedDoc?.id === doc.id} processingInfo={processingDocs[doc.id]}
+                        onSelect={() => handleSelect(doc)} onDelete={() => handleDelete(doc.id)} />
                     </motion.div>
                   ))}
                 </AnimatePresence>
               </div>
-
-              {/* Pagination */}
               {total > 12 && (
-                <div className="flex justify-center gap-2 mt-8">
-                  <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                    className="px-4 py-2 rounded-lg text-sm transition-all disabled:opacity-30"
-                    style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-                    ← Prev
-                  </button>
-                  <span className="px-4 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Page {page + 1} of {Math.ceil(total / 12)}
-                  </span>
-                  <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * 12 >= total}
-                    className="px-4 py-2 rounded-lg text-sm transition-all disabled:opacity-30"
-                    style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-                    Next →
-                  </button>
+                <div className="pager">
+                  <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="pager-btn">← Prev</button>
+                  <span className="pager-info">Page {page + 1} / {Math.ceil(total / 12)}</span>
+                  <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * 12 >= total} className="pager-btn">Next →</button>
                 </div>
               )}
             </>
           )}
-        </div>
+        </section>
       </main>
 
-      {/* Document Detail Panel */}
       <AnimatePresence>
-        {selectedDoc && (
-          <DocumentViewer
-            document={selectedDoc}
-            onClose={() => setSelectedDoc(null)}
-            onDelete={() => { handleDelete(selectedDoc.id); setSelectedDoc(null); }}
-          />
-        )}
+        {selectedDoc && <DocumentViewer document={selectedDoc} onClose={() => setSelectedDoc(null)} onDelete={() => { handleDelete(selectedDoc.id); setSelectedDoc(null); }} />}
       </AnimatePresence>
     </div>
   );
