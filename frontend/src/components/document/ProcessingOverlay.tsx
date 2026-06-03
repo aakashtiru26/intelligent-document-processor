@@ -1,28 +1,38 @@
 'use client';
 import { motion } from 'framer-motion';
 
-interface Props { docId: string; progress: number; message: string; step: string; }
+const STEPS: Record<string, string> = {
+  init: 'Initializing', ocr: 'Running OCR', classify: 'Classifying document',
+  ner: 'Extracting entities', fields: 'Parsing structured fields',
+  keywords: 'Extracting keywords', summary: 'Generating summary',
+  scoring: 'Calculating confidence', complete: 'Complete',
+};
 
-const STEPS = ['init','ocr','classify','ner','fields','keywords','summary','scoring'];
-
-export default function ProcessingOverlay({ docId, progress, message, step }: Props) {
-  const stepIdx = STEPS.indexOf(step);
+export default function ProcessingOverlay({ docId, progress, message, step }: {
+  docId: string; progress: number; message: string; step: string;
+}) {
   return (
-    <div className="proc-card">
-      <div className="proc-spinner" />
-      <div className="proc-info">
-        <div className="proc-name">Processing · {docId.slice(0,8)}...</div>
-        <div className="proc-msg">{message}</div>
-        <div className="proc-bar-wrap">
-          <motion.div className="proc-bar" animate={{ width: `${progress}%` }} transition={{ duration: 0.3 }} />
+    <motion.div
+      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+      style={{
+        background: 'var(--black-2)', border: '1px solid var(--border)',
+        borderRadius: '10px', padding: '14px 18px',
+        display: 'flex', alignItems: 'center', gap: 14,
+      }}
+    >
+      <div className="spin" style={{
+        width: 14, height: 14, flexShrink: 0, borderRadius: '50%',
+        border: '1.5px solid var(--border-light)', borderTopColor: 'var(--green)',
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{STEPS[step] || step}</span>
+          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>{progress}%</span>
         </div>
-        <div style={{ display:'flex', gap:3, marginTop:6 }}>
-          {STEPS.map((s,i) => (
-            <div key={s} style={{ flex:1, height:3, borderRadius:99, background: i<=stepIdx ? '#6366f1' : 'rgba(99,102,241,0.12)', transition:'background 0.3s' }} />
-          ))}
+        <div className="prog-track">
+          <motion.div className="prog-fill" animate={{ width: `${progress}%` }} transition={{ duration: 0.35 }} />
         </div>
       </div>
-      <div className="proc-pct">{progress}%</div>
-    </div>
+    </motion.div>
   );
 }

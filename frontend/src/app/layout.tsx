@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import './globals.css';
 import { Toaster } from 'react-hot-toast';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'IDPS — Intelligent Document Processing System',
-  description: 'AI-powered platform for OCR, NLP, and document intelligence',
+  title: 'IDPS — Document Intelligence',
+  description: 'Intelligent Document Processing System',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,21 +12,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         {children}
-        <Toaster position="bottom-right" toastOptions={{
-          style: {
-            background: 'rgba(255,255,255,0.95)',
-            backdropFilter: 'blur(16px)',
-            color: '#0f0f23',
-            border: '1.5px solid rgba(99,102,241,0.15)',
-            borderRadius: '14px',
-            fontFamily: 'Satoshi, sans-serif',
-            fontSize: '13.5px',
-            fontWeight: 500,
-            boxShadow: '0 8px 32px rgba(99,102,241,0.12)',
-          },
-          success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-          error: { iconTheme: { primary: '#f43f5e', secondary: '#fff' } },
-        }} />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: '#161616',
+              color: '#f5f5f5',
+              border: '1px solid #2a2a2a',
+              borderRadius: '8px',
+              fontSize: '12.5px',
+              fontFamily: "'Inter', sans-serif",
+              padding: '10px 14px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+            },
+            success: { iconTheme: { primary: '#00c896', secondary: '#000' } },
+            error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+          }}
+        />
       </body>
     </html>
   );
