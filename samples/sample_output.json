@@ -1,0 +1,58 @@
+{
+  "export_metadata": {
+    "exported_at": "2024-01-15T10:30:00",
+    "document_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "original_filename": "sample_invoice.pdf",
+    "system": "IDPS v1.0.0"
+  },
+  "document_info": {
+    "filename": "sample_invoice.pdf",
+    "document_type": "invoice",
+    "page_count": 1,
+    "file_size_bytes": 45231,
+    "processing_time_seconds": 3.24,
+    "overall_confidence": 0.871
+  },
+  "structured_fields": {
+    "invoice_number": "INV-2024-0089",
+    "date": "15/01/2024",
+    "amount": "2,08,860.00",
+    "gst_number": "29ABCDE1234F1Z5",
+    "pan_number": "ABCDE1234F",
+    "phone": "+91-80-12345678",
+    "email": "billing@techsolutions.com",
+    "account_number": "50100123456789",
+    "ifsc_code": "HDFC0001234",
+    "tax_amount": "15,930.00",
+    "line_items": [
+      { "description": "Software License - Enterprise", "amount": "50,000.00" },
+      { "description": "Implementation Services", "amount": "1,00,000.00" },
+      { "description": "Annual Maintenance Contract", "amount": "15,000.00" }
+    ]
+  },
+  "field_confidences": {
+    "invoice_number": 0.85,
+    "date": 0.85,
+    "amount": 0.85,
+    "gst_number": 0.85,
+    "email": 0.85,
+    "account_number": 0.85,
+    "ifsc_code": 0.85
+  },
+  "named_entities": {
+    "persons": ["Ramesh Kumar"],
+    "organizations": ["TechSolutions Pvt. Ltd.", "GlobalRetail Corp", "HDFC Bank"],
+    "locations": ["Bengaluru", "Karnataka", "Mumbai", "Maharashtra"],
+    "dates": ["15/01/2024", "14/02/2024"],
+    "money": ["50,000.00", "1,00,000.00", "2,08,860.00"],
+    "misc": []
+  },
+  "keywords": [
+    { "word": "invoice", "count": 4, "score": 0.0421 },
+    { "word": "payment", "count": 3, "score": 0.0316 },
+    { "word": "services", "count": 2, "score": 0.0211 },
+    { "word": "license", "count": 2, "score": 0.0211 },
+    { "word": "maintenance", "count": 1, "score": 0.0105 }
+  ],
+  "summary": "Invoice INV-2024-0089 from TechSolutions Pvt. Ltd. to GlobalRetail Corp for software license, implementation services, and annual maintenance contract with a grand total of Rs. 2,08,860 including GST. Payment due by 14/02/2024 via HDFC Bank account."
+}

@@ -1,0 +1,47 @@
+INVOICE
+
+Company Name: TechSolutions Pvt. Ltd.
+Address: 45 MG Road, Bengaluru, Karnataka - 560001
+GSTIN: 29ABCDE1234F1Z5
+Email: billing@techsolutions.com
+Phone: +91-80-12345678
+
+INVOICE NO: INV-2024-0089
+INVOICE DATE: 15/01/2024
+DUE DATE: 14/02/2024
+
+BILL TO:
+GlobalRetail Corp
+Mr. Ramesh Kumar
+123 Commercial Street
+Mumbai, Maharashtra - 400001
+PAN: ABCDE1234F
+
+ITEMS:
+
+No.  Description                     Qty    Rate        Amount
+1    Software License - Enterprise    1      50,000.00   50,000.00
+2    Implementation Services          40hrs  2,500.00    1,00,000.00
+3    Annual Maintenance Contract      1      15,000.00   15,000.00
+4    Training Sessions (3 days)       1      12,000.00   12,000.00
+
+                                    Subtotal:    1,77,000.00
+                                    CGST @9%:       15,930.00
+                                    SGST @9%:       15,930.00
+                                    GRAND TOTAL:  2,08,860.00
+
+Amount in Words: Rupees Two Lakhs Eight Thousand Eight Hundred Sixty Only
+
+BANK DETAILS:
+Bank Name: HDFC Bank
+Account No: 50100123456789
+Account Name: TechSolutions Pvt. Ltd.
+IFSC Code: HDFC0001234
+Branch: MG Road, Bengaluru
+
+Payment Terms: Net 30 Days
+Late Payment: 2% per month after due date
+
+Thank you for your business!
+For TechSolutions Pvt. Ltd.
+Authorized Signatory
